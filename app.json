@@ -21,9 +21,10 @@
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -47,6 +48,11 @@
           "cameraPermission": "CosturaApp necesita acceso a la cámara para tomar fotos de telas y medidas de clientas."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6504a0ab-e3b3-47bf-a9ad-dfa848ec337e"
+      }
+    }
   }
 }

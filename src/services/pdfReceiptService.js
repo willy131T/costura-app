@@ -342,5 +342,294 @@ export const pdfReceiptService = {
       console.log('Error generando recibo PDF:', error);
       Alert.alert('Error', 'No se pudo generar el comprobante PDF: ' + error.message);
     }
+  },
+
+  /**
+   * Genera una Mini Boleta de Taller imprimible/recortable para prender al gancho con alfiler
+   */
+  async generateHangerTagPDF(quote) {
+    try {
+      const folio = (quote.id || 'COT-' + Date.now().toString().slice(-4)).toUpperCase();
+      const deposit = quote.depositPaid || quote.suggestedDeposit || (quote.totalQuote * 0.5);
+      const remainingBalance = Math.max(0, quote.totalQuote - deposit);
+      const isAlteration = quote.type === 'arreglo' || (quote.alterationItems && quote.alterationItems.length > 0);
+      const isUrgent = quote.urgencyLevel && quote.urgencyLevel !== 'normal';
+
+      const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      color: #0F172A;
+      background-color: #FFFFFF;
+    }
+    .ticket-container {
+      border: 3px dashed #64748B;
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 440px;
+      margin: 0 auto;
+      background-color: #FAFAFA;
+    }
+    .pin-target {
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .pin-hole {
+      display: inline-block;
+      width: 22px;
+      height: 22px;
+      border: 2px dashed #94A3B8;
+      border-radius: 50%;
+      background: #FFFFFF;
+    }
+    .pin-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #64748B;
+      font-weight: 700;
+      margin-top: 2px;
+      letter-spacing: 0.5px;
+    }
+    .ticket-header {
+      text-align: center;
+      border-bottom: 2px solid #E2E8F0;
+      padding-bottom: 12px;
+    }
+    .ticket-title {
+      font-size: 18px;
+      font-weight: 900;
+      color: #7C3AED;
+      margin: 0;
+    }
+    .ticket-subtitle {
+      font-size: 11px;
+      color: #64748B;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    .folio-badge {
+      display: inline-block;
+      background-color: #0F172A;
+      color: #FFFFFF;
+      font-weight: 900;
+      font-size: 15px;
+      padding: 4px 14px;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+    .client-card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 14px;
+    }
+    .field-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #94A3B8;
+      letter-spacing: 0.5px;
+    }
+    .client-name {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0F172A;
+      margin-top: 2px;
+    }
+    .client-phone {
+      font-size: 13px;
+      font-weight: 700;
+      color: #2563EB;
+      margin-top: 2px;
+    }
+    .date-box {
+      background-color: ${isUrgent ? '#FEE2E2' : '#FEF3C7'};
+      border: 2px solid ${isUrgent ? '#EF4444' : '#F59E0B'};
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 12px;
+      text-align: center;
+    }
+    .date-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: ${isUrgent ? '#991B1B' : '#92400E'};
+      text-transform: uppercase;
+    }
+    .date-value {
+      font-size: 18px;
+      font-weight: 900;
+      color: ${isUrgent ? '#DC2626' : '#B45309'};
+      margin-top: 2px;
+    }
+    .urgency-badge {
+      display: inline-block;
+      background-color: #DC2626;
+      color: #FFFFFF;
+      font-weight: 900;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+    }
+    .tasks-section {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .tasks-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #334155;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #F1F5F9;
+      padding-bottom: 4px;
+    }
+    .task-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #1E293B;
+    }
+    .checkbox-box {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #64748B;
+      border-radius: 4px;
+      margin-right: 10px;
+      flex-shrink: 0;
+    }
+    .money-summary {
+      background-color: #F8FAFC;
+      border: 1px solid #CBD5E1;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .money-label {
+      font-size: 12px;
+      color: #64748B;
+      font-weight: 700;
+    }
+    .money-pending {
+      font-size: 18px;
+      font-weight: 900;
+      color: #DC2626;
+    }
+    .cut-line-notice {
+      text-align: center;
+      font-size: 10px;
+      color: #94A3B8;
+      margin-top: 14px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ticket-container">
+    <div class="pin-target">
+      <div class="pin-hole"></div>
+      <div class="pin-label">📌 Prender aquí al gancho</div>
+    </div>
+
+    <div class="ticket-header">
+      <h2 class="ticket-title">🧵 TALLER DE COSTURA</h2>
+      <div class="ticket-subtitle">CONTROL DE PRENDAS Y GANCHOS</div>
+      <div class="folio-badge">FOLIO: ${folio}</div>
+    </div>
+
+    <!-- Clienta -->
+    <div class="client-card">
+      <div class="field-label">Clienta:</div>
+      <div class="client-name">${quote.clientName || 'Cliente de Taller'}</div>
+      ${quote.clientPhone ? `<div class="client-phone">📱 ${quote.clientPhone}</div>` : ''}
+    </div>
+
+    <!-- Fecha de entrega destacada -->
+    <div class="date-box">
+      <div class="date-title">🎁 Entregar el día:</div>
+      <div class="date-value">${quote.deliveryDate || 'Por acordar'}</div>
+      ${isUrgent ? `<div class="urgency-badge">⚡ ${quote.urgencyBadge || 'URGENTE'}</div>` : ''}
+    </div>
+
+    <!-- Lista de prendas / trabajos con checkbox -->
+    <div class="tasks-section">
+      <div class="tasks-title">Prendas y Trabajos a Realizar:</div>
+      ${isAlteration && quote.alterationItems && quote.alterationItems.length > 0 ? (
+        quote.alterationItems.map(it => `
+          <div class="task-item">
+            <div class="checkbox-box"></div>
+            <div>
+              <strong>${it.quantity}x ${it.name}</strong>
+              <div style="font-size:11px; color:#64748B;">${it.detail || 'Compostura'}</div>
+            </div>
+          </div>
+        `).join('')
+      ) : `
+        <div class="task-item">
+          <div class="checkbox-box"></div>
+          <div>
+            <strong>${quote.projectName}</strong>
+            <div style="font-size:11px; color:#64748B;">Confección a la medida</div>
+          </div>
+        </div>
+      `}
+    </div>
+
+    <!-- Saldo por Cobrar -->
+    <div class="money-summary">
+      <div>
+        <div class="money-label">Total: ${formatCurrency(quote.totalQuote)}</div>
+        <div class="money-label" style="color:#15803D;">Anticipo: -${formatCurrency(deposit)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:10px; font-weight:800; color:#DC2626; text-transform:uppercase;">Por Cobrar:</div>
+        <div class="money-pending">${formatCurrency(remainingBalance)} MXN</div>
+      </div>
+    </div>
+
+    <div class="cut-line-notice">
+      ✂️ Recortar por la línea punteada y colocar en el gancho de la prenda
+    </div>
+  </div>
+
+</body>
+</html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({
+        html: htmlContent,
+        base64: false,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          UTI: '.pdf',
+          mimeType: 'application/pdf',
+          dialogTitle: `Boleta de Gancho - ${quote.clientName || 'Prenda'}`,
+        });
+      } else {
+        Alert.alert('Boleta Generada', `La boleta de gancho se generó en: ${uri}`);
+      }
+    } catch (error) {
+      console.log('Error generando boleta de gancho:', error);
+      Alert.alert('Error', 'No se pudo generar la boleta de gancho: ' + error.message);
+    }
   }
 };

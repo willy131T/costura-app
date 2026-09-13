@@ -291,6 +291,33 @@ export default function CalculatorScreen({ navigation }) {
     await pdfReceiptService.generateAndShareReceipt(currentQuote);
   };
 
+  const handleGenerateAltHangerTag = async () => {
+    if (!altResult || altResult.itemsCount === 0) {
+      Alert.alert('Sin prendas', 'Selecciona al menos 1 arreglo para generar la boleta de gancho.');
+      return;
+    }
+    const itemsSummary = altResult.items.map((i) => `${i.quantity}x ${i.name}`).join(', ');
+    const currentQuote = {
+      type: 'arreglo',
+      projectName: itemsSummary,
+      clientName: altClientName.trim() || 'Clienta de Taller',
+      clientPhone: altClientPhone.trim(),
+      deliveryDate: altDeliveryDate.trim() || 'Por acordar',
+      depositPaid: Number(altDepositPaid) || altResult.suggestedDeposit,
+      status: 'en_proceso',
+      alterationItems: altResult.items,
+      totalQuote: altResult.totalQuote,
+      subtotal: altResult.subtotal,
+      urgencyLevel: altResult.urgencyLevel,
+      urgencyBadge: altResult.urgencyBadge,
+      urgencySurchargePct: altResult.urgencySurchargePct,
+      urgencySurchargeAmount: altResult.urgencySurchargeAmount,
+      materialsCost: 0,
+      laborCost: altResult.totalQuote,
+    };
+    await pdfReceiptService.generateHangerTagPDF(currentQuote);
+  };
+
   // ==========================================
   // MANEJADORES: MODO CONFECCIÓN A MEDIDA
   // ==========================================
@@ -397,6 +424,26 @@ export default function CalculatorScreen({ navigation }) {
       ...confResult,
     };
     await pdfReceiptService.generateAndShareReceipt(currentQuote);
+  };
+
+  const handleGenerateConfHangerTag = async () => {
+    if (!confResult) return;
+    const currentQuote = {
+      type: 'confeccion',
+      projectName: projectName.trim() || 'Prenda de Costura',
+      clientName: clientName.trim() || 'Clienta de Taller',
+      clientPhone: clientPhone.trim(),
+      deliveryDate: deliveryDate.trim() || 'Por acordar',
+      fittingDate: fittingDate.trim() || 'Por agendar',
+      depositPaid: Number(depositPaid) || confResult.suggestedDeposit,
+      status: 'en_proceso',
+      urgencyLevel: confUrgency,
+      urgencyBadge: confResult.urgencyBadge,
+      urgencySurchargePct: confResult.urgencySurchargePct,
+      urgencySurchargeAmount: confResult.urgencySurchargeAmount,
+      ...confResult,
+    };
+    await pdfReceiptService.generateHangerTagPDF(currentQuote);
   };
 
   const handleShareConfWhatsApp = () => {
@@ -755,6 +802,19 @@ export default function CalculatorScreen({ navigation }) {
                 />
 
                 <Button
+                  title="🏷️ Mini Boleta para Gancho (PDF)"
+                  variant="outline"
+                  icon={<Ionicons name="pricetag-outline" size={20} color="#6D28D9" />}
+                  onPress={handleGenerateAltHangerTag}
+                  style={{
+                    marginTop: theme.spacing.sm,
+                    borderColor: '#DDD6FE',
+                    backgroundColor: '#F5F3FF',
+                  }}
+                  textStyle={{ color: '#6D28D9', fontWeight: '700' }}
+                />
+
+                <Button
                   title="💾 Guardar y Agendar en Entregas"
                   variant="profit"
                   icon={<Ionicons name="calendar-outline" size={22} color="#FFF" />}
@@ -1107,6 +1167,19 @@ export default function CalculatorScreen({ navigation }) {
                     icon={<Ionicons name="document-text-outline" size={22} color="#FFF" />}
                     onPress={handleGenerateConfPDF}
                     style={{ marginTop: theme.spacing.sm, backgroundColor: '#7C3AED' }}
+                  />
+
+                  <Button
+                    title="🏷️ Mini Boleta para Gancho (PDF)"
+                    variant="outline"
+                    icon={<Ionicons name="pricetag-outline" size={20} color="#6D28D9" />}
+                    onPress={handleGenerateConfHangerTag}
+                    style={{
+                      marginTop: theme.spacing.sm,
+                      borderColor: '#DDD6FE',
+                      backgroundColor: '#F5F3FF',
+                    }}
+                    textStyle={{ color: '#6D28D9', fontWeight: '700' }}
                   />
 
                   <Button

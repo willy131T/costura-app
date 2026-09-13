@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,10 @@ import {
   Linking,
   Share,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { theme } from '../constants/theme';
 import { Header } from '../components/common/Header';
 import { Card } from '../components/common/Card';
@@ -22,10 +24,13 @@ import { inventoryService } from '../services/inventoryService';
 import { clientService } from '../services/clientService';
 import { formatCurrency } from '../utils/currency';
 import { pdfReceiptService } from '../services/pdfReceiptService';
+import { portfolioService, PORTFOLIO_CATEGORIES } from '../services/portfolioService';
+import { exportService } from '../services/exportService';
 
 export default function HomeScreen({ navigation }) {
   const [quotes, setQuotes] = useState([]);
   const [clients, setClients] = useState([]);
+  const [portfolio, setPortfolio] = useState([]);
   const [stats, setStats] = useState({ fabricsCount: 0, threadsCount: 0 });
   const [refreshing, setRefreshing] = useState(false);
 
@@ -41,16 +46,31 @@ export default function HomeScreen({ navigation }) {
   const [largoFalda, setLargoFalda] = useState('');
   const [clientNotes, setClientNotes] = useState('');
 
+  // Modal y Estados de Portafolio de Alta Costura
+  const [portfolioModalVisible, setPortfolioModalVisible] = useState(false);
+  const [newDesignModalVisible, setNewDesignModalVisible] = useState(false);
+  const [selectedPortfolioCat, setSelectedPortfolioCat] = useState('Todos');
+  const [previewImageUri, setPreviewImageUri] = useState(null);
+
+  // Formulario para nuevo diseño de portafolio
+  const [designTitle, setDesignTitle] = useState('');
+  const [designCategory, setDesignCategory] = useState('XV Años');
+  const [designPrice, setDesignPrice] = useState('');
+  const [designDescription, setDesignDescription] = useState('');
+  const [designPhotoUri, setDesignPhotoUri] = useState('');
+
   const loadData = async () => {
     try {
-      const [savedQuotes, fabrics, threads, clientList] = await Promise.all([
+      const [savedQuotes, fabrics, threads, clientList, portfolioItems] = await Promise.all([
         pricingService.getSavedQuotes(),
         inventoryService.getFabrics(),
         inventoryService.getThreads(),
         clientService.getClients(),
+        portfolioService.getPortfolio(),
       ]);
       setQuotes(savedQuotes);
       setClients(clientList);
+      setPortfolio(portfolioItems);
       setStats({
         fabricsCount: fabrics.length,
         threadsCount: threads.length,
@@ -70,6 +90,173 @@ export default function HomeScreen({ navigation }) {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
+  };
+
+  // ==========================================
+  // CORTE DE CAJA Y GANANCIAS (MÉTRICAS)
+  // ==========================================
+  const cashStats = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    let today = 0;
+    let thisWeek = 0;
+    let pendingBalance = 0;
+
+    quotes.forEach((q) => {
+      const deposit = Number(q.depositPaid) || Number(q.suggestedDeposit) || ((Number(q.totalQuote) || 0) * 0.5) || 0;
+      const total = Number(q.totalQuote) || 0;
+      const remaining = Math.max(0, total - deposit);
+
+      // Si la prenda ya fue entregada, se considera liquidado el 100% del trabajo
+      const totalCollected = q.status === 'entregado' ? total : deposit;
+
+      // Extraer fecha del registro
+      const qDateStr = q.createdAt
+        ? (typeof q.createdAt === 'string' ? q.createdAt : (q.createdAt.toDate ? q.createdAt.toDate().toISOString() : ''))
+        : (q.date || '');
+      const qDate = qDateStr ? new Date(qDateStr) : null;
+
+      if (qDate && !isNaN(qDate.getTime())) {
+        const isToday = qDate.toISOString().slice(0, 10) === todayStr;
+        const isThisWeek = qDate >= sevenDaysAgo;
+
+        if (isToday) {
+          today += totalCollected;
+        }
+        if (isThisWeek) {
+          thisWeek += totalCollected;
+        }
+      } else {
+        thisWeek += totalCollected;
+      }
+
+      if (q.status !== 'entregado') {
+        pendingBalance += remaining;
+      }
+    });
+
+    return { today, thisWeek, pendingBalance };
+  }, [quotes]);
+
+  const handleExportQuotesExcel = async () => {
+    try {
+      await exportService.exportQuotesToExcel(quotes);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo exportar el historial a Excel: ' + e.message);
+    }
+  };
+
+  const handleGenerateHangerTag = async (q) => {
+    await pdfReceiptService.generateHangerTagPDF(q);
+  };
+
+  // ==========================================
+  // MANEJADORES DE PORTAFOLIO DE ALTA COSTURA
+  // ==========================================
+  const handlePickDesignPhoto = () => {
+    Alert.alert(
+      'Foto del Diseño 👗',
+      '¿De dónde deseas cargar la foto de tu vestido o confección?',
+      [
+        {
+          text: 'Tomar Foto 📷',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permiso necesario', 'Se requiere acceso a la cámara para fotografiar tus diseños.');
+              return;
+            }
+            const res = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.8,
+            });
+            if (!res.canceled && res.assets && res.assets.length > 0) {
+              setDesignPhotoUri(res.assets[0].uri);
+            }
+          },
+        },
+        {
+          text: 'De la Galería 🖼️',
+          onPress: async () => {
+            const res = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.8,
+            });
+            if (!res.canceled && res.assets && res.assets.length > 0) {
+              setDesignPhotoUri(res.assets[0].uri);
+            }
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleSaveDesign = async () => {
+    if (!designTitle.trim()) {
+      Alert.alert('Falta título', 'Escribe el nombre o tipo de diseño (ej. "Vestido de XV Años Princesa").');
+      return;
+    }
+
+    try {
+      await portfolioService.addPortfolioItem({
+        title: designTitle.trim(),
+        category: designCategory,
+        approxPrice: Number(designPrice) || 0,
+        description: designDescription.trim(),
+        photoUri: designPhotoUri || 'https://images.unsplash.com/photo-1594552072238-b8a33785b261?auto=format&fit=crop&w=600&q=80',
+      });
+
+      setDesignTitle('');
+      setDesignCategory('XV Años');
+      setDesignPrice('');
+      setDesignDescription('');
+      setDesignPhotoUri('');
+      setNewDesignModalVisible(false);
+
+      await loadData();
+      Alert.alert('¡Diseño Guardado! 🎉', 'Tu creación se agregó exitosamente a tu muestrario de alta costura.');
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar el diseño: ' + e.message);
+    }
+  };
+
+  const handleDeleteDesign = (id, title) => {
+    Alert.alert(
+      '¿Eliminar diseño?',
+      `¿Segura que deseas quitar "${title}" de tu portafolio?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            await portfolioService.deletePortfolioItem(id);
+            await loadData();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleShareDesignWhatsApp = (item) => {
+    const priceStr = item.approxPrice > 0 ? `\n💰 *Presupuesto estimado:* Desde ${formatCurrency(item.approxPrice)} MXN` : '';
+    const text =
+      `👗 *${item.title}* (${item.category})\n\n` +
+      `${item.description || 'Confección fina artesanal a la medida.'}\n` +
+      priceStr + '\n\n' +
+      `¿Te gustaría confeccionar un diseño similar para tu evento especial? ¡Podemos personalizar la tela, el color y tus medidas exactas! ✨🪡\n\n` +
+      `¡Escríbeme para agendar tu cita de diseño en el taller!`;
+
+    const url = `whatsapp://send?text=${encodeURIComponent(text)}`;
+    Linking.openURL(url).catch(() => {
+      Share.share({ message: text });
+    });
   };
 
   const handleShareQuote = (q) => {
@@ -223,6 +410,61 @@ export default function HomeScreen({ navigation }) {
           </Text>
         </View>
 
+        {/* ========================================== */}
+        {/* CORTE DE CAJA Y GANANCIAS DEL TALLER */}
+        {/* ========================================== */}
+        <Card style={styles.cashCard}>
+          <View style={styles.cashHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <View style={styles.cashIconBox}>
+                <Ionicons name="cash" size={22} color="#15803D" />
+              </View>
+              <View>
+                <Text style={styles.cashTitle}>Corte de Caja y Ganancias</Text>
+                <Text style={styles.cashSubtitle}>Flujo financiero de tu taller</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.excelExportBtn}
+              onPress={handleExportQuotesExcel}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="document-text" size={15} color="#15803D" />
+              <Text style={styles.excelExportText}>📊 Excel</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.cashGrid}>
+            <View style={styles.cashCol}>
+              <Text style={styles.cashColLabel}>Cobrado Hoy</Text>
+              <Text style={[styles.cashColVal, { color: '#15803D' }]}>
+                {formatCurrency(cashStats.today)}
+              </Text>
+              <Text style={styles.cashColSub}>Anticipos y pagos</Text>
+            </View>
+
+            <View style={styles.cashDividerVert} />
+
+            <View style={styles.cashCol}>
+              <Text style={styles.cashColLabel}>Esta Semana</Text>
+              <Text style={[styles.cashColVal, { color: theme.colors.primaryDark }]}>
+                {formatCurrency(cashStats.thisWeek)}
+              </Text>
+              <Text style={styles.cashColSub}>Últimos 7 días</Text>
+            </View>
+
+            <View style={styles.cashDividerVert} />
+
+            <View style={styles.cashCol}>
+              <Text style={styles.cashColLabel}>Por Cobrar</Text>
+              <Text style={[styles.cashColVal, { color: '#DC2626' }]}>
+                {formatCurrency(cashStats.pendingBalance)}
+              </Text>
+              <Text style={styles.cashColSub}>Prendas activas</Text>
+            </View>
+          </View>
+        </Card>
+
         {/* Acceso Rápido al Cotizador (Core) */}
         <Card variant="highlight" style={styles.ctaCard}>
           <View style={styles.ctaRow}>
@@ -243,22 +485,22 @@ export default function HomeScreen({ navigation }) {
           />
         </Card>
 
-        {/* Resumen de Inventario, Proveedores y Medidas */}
+        {/* Resumen de Inventario, Proveedores, Medidas y Portafolio */}
         <Text style={styles.sectionTitle}>Tu Taller al Día</Text>
-        <View style={styles.statsRow}>
+        <View style={styles.statsGrid}>
           <Card
-            style={styles.statCard}
+            style={styles.statGridCard}
             onPress={() => navigation.navigate('Inventario')}
           >
             <View style={[styles.statIconBox, { backgroundColor: theme.colors.materialsLight }]}>
               <Ionicons name="cut" size={22} color={theme.colors.materials} />
             </View>
             <Text style={styles.statNumber}>{stats.fabricsCount}</Text>
-            <Text style={styles.statLabel}>Telas</Text>
+            <Text style={styles.statLabel}>Telas en Stock</Text>
           </Card>
 
           <Card
-            style={styles.statCard}
+            style={styles.statGridCard}
             onPress={() => navigation.navigate('Proveedores')}
           >
             <View style={[styles.statIconBox, { backgroundColor: theme.colors.laborLight }]}>
@@ -269,7 +511,7 @@ export default function HomeScreen({ navigation }) {
           </Card>
 
           <Card
-            style={styles.statCard}
+            style={styles.statGridCard}
             onPress={() => navigation.navigate('Medidas')}
           >
             <View style={[styles.statIconBox, { backgroundColor: theme.colors.profitLight }]}>
@@ -277,6 +519,17 @@ export default function HomeScreen({ navigation }) {
             </View>
             <Text style={styles.statNumber}>{clients.length}</Text>
             <Text style={styles.statLabel}>Medidas</Text>
+          </Card>
+
+          <Card
+            style={[styles.statGridCard, { borderColor: '#DDD6FE', borderWidth: 1 }]}
+            onPress={() => setPortfolioModalVisible(true)}
+          >
+            <View style={[styles.statIconBox, { backgroundColor: '#EDE9FE' }]}>
+              <Ionicons name="sparkles" size={22} color="#7C3AED" />
+            </View>
+            <Text style={[styles.statNumber, { color: '#7C3AED' }]}>{portfolio.length}</Text>
+            <Text style={styles.statLabel}>Portafolio 👗</Text>
           </Card>
         </View>
 
@@ -389,6 +642,15 @@ export default function HomeScreen({ navigation }) {
                       <Ionicons name="document-text" size={14} color="#6D28D9" />
                       <Text style={styles.pdfBtnText}>Recibo PDF</Text>
                     </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.hangerBtn}
+                      onPress={() => handleGenerateHangerTag(q)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="pricetag" size={14} color="#0D9488" />
+                      <Text style={styles.hangerBtnText}>🏷️ Gancho</Text>
+                    </TouchableOpacity>
                   </View>
                 </Card>
               );
@@ -459,6 +721,15 @@ export default function HomeScreen({ navigation }) {
                 >
                   <Ionicons name="document-text" size={16} color="#6D28D9" />
                   <Text style={styles.quotePdfText}>Recibo PDF</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.quoteHangerBtn, { flex: 1 }]}
+                  onPress={() => handleGenerateHangerTag(q)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="pricetag" size={16} color="#0D9488" />
+                  <Text style={styles.quoteHangerText}>Gancho</Text>
                 </TouchableOpacity>
               </View>
             </Card>
@@ -633,6 +904,307 @@ export default function HomeScreen({ navigation }) {
               />
             </ScrollView>
           </View>
+        </View>
+      </Modal>
+
+      {/* =================================================================== */}
+      {/* MODAL: MI PORTAFOLIO DE DISEÑOS (ALTA COSTURA) */}
+      {/* =================================================================== */}
+      <Modal
+        visible={portfolioModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setPortfolioModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '92%' }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Mi Portafolio de Diseños 👗</Text>
+                <Text style={styles.portfolioModalSubtitle}>Muestrario de alta costura para tus clientas</Text>
+              </View>
+              <TouchableOpacity onPress={() => setPortfolioModalVisible(false)}>
+                <Ionicons name="close-circle" size={30} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Botón para agregar nuevo diseño */}
+            <Button
+              title="+ Agregar Nuevo Vestido o Confección"
+              variant="primary"
+              icon={<Ionicons name="camera-outline" size={20} color="#FFF" />}
+              onPress={() => setNewDesignModalVisible(true)}
+              style={{ marginBottom: theme.spacing.sm }}
+            />
+
+            {/* Filtro por Categorías */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.portfolioFilterScroll}
+              contentContainerStyle={{ gap: 8, paddingBottom: 6 }}
+            >
+              {PORTFOLIO_CATEGORIES.map((cat) => {
+                const isSelected = selectedPortfolioCat === cat;
+                return (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[
+                      styles.portfolioFilterChip,
+                      isSelected && styles.portfolioFilterChipActive,
+                    ]}
+                    onPress={() => setSelectedPortfolioCat(cat)}
+                  >
+                    <Text
+                      style={[
+                        styles.portfolioFilterText,
+                        isSelected && styles.portfolioFilterTextActive,
+                      ]}
+                    >
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Listado de Diseños */}
+            <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 6 }}>
+              {portfolio
+                .filter(
+                  (item) =>
+                    selectedPortfolioCat === 'Todos' ||
+                    item.category === selectedPortfolioCat
+                )
+                .map((item) => (
+                  <Card key={item.id} style={styles.portfolioCard}>
+                    {item.photoUri ? (
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() => setPreviewImageUri(item.photoUri)}
+                      >
+                        <Image
+                          source={{ uri: item.photoUri }}
+                          style={styles.portfolioImage}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.portfolioImageZoomHint}>
+                          <Ionicons name="scan-outline" size={14} color="#FFF" />
+                          <Text style={styles.portfolioImageZoomText}>Tocar para ampliar</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+
+                    <View style={styles.portfolioCardContent}>
+                      <View style={styles.portfolioCardHeader}>
+                        <View style={{ flex: 1, paddingRight: 6 }}>
+                          <View style={styles.portfolioCategoryBadge}>
+                            <Text style={styles.portfolioCategoryBadgeText}>
+                              {item.category}
+                            </Text>
+                          </View>
+                          <Text style={styles.portfolioCardTitle}>{item.title}</Text>
+                        </View>
+                        {item.approxPrice > 0 && (
+                          <View style={styles.portfolioPriceBadge}>
+                            <Text style={styles.portfolioPriceLabel}>Desde</Text>
+                            <Text style={styles.portfolioPriceVal}>
+                              {formatCurrency(item.approxPrice)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {item.description ? (
+                        <Text style={styles.portfolioCardDesc}>{item.description}</Text>
+                      ) : null}
+
+                      {/* Botones de acción del diseño */}
+                      <View style={styles.portfolioActionsRow}>
+                        <TouchableOpacity
+                          style={styles.portfolioShareBtn}
+                          onPress={() => handleShareDesignWhatsApp(item)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="logo-whatsapp" size={16} color="#15803D" />
+                          <Text style={styles.portfolioShareBtnText}>Mostrar a Clienta</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.portfolioDeleteBtn}
+                          onPress={() => handleDeleteDesign(item.id, item.title)}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </Card>
+                ))}
+
+              {portfolio.filter(
+                (item) =>
+                  selectedPortfolioCat === 'Todos' ||
+                  item.category === selectedPortfolioCat
+              ).length === 0 && (
+                <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                  <Ionicons name="shirt-outline" size={48} color={theme.colors.textMuted} />
+                  <Text style={[styles.emptyText, { marginTop: 8 }]}>
+                    Aún no hay diseños en "{selectedPortfolioCat}"
+                  </Text>
+                  <Text style={styles.emptySubtext}>
+                    Toma fotos de tus vestidos para mostrárselos a tus clientas cuando te pidan ideas.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* =================================================================== */}
+      {/* MODAL: REGISTRAR NUEVO DISEÑO AL PORTAFOLIO */}
+      {/* =================================================================== */}
+      <Modal
+        visible={newDesignModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setNewDesignModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Nuevo Diseño en Portafolio</Text>
+              <TouchableOpacity onPress={() => setNewDesignModalVisible(false)}>
+                <Ionicons name="close-circle" size={28} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Selector de Foto con Vista Previa */}
+              <TouchableOpacity
+                style={styles.photoPickerContainer}
+                onPress={handlePickDesignPhoto}
+                activeOpacity={0.85}
+              >
+                {designPhotoUri ? (
+                  <View style={{ width: '100%', position: 'relative' }}>
+                    <Image
+                      source={{ uri: designPhotoUri }}
+                      style={styles.pickedImagePreview}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.changePhotoBadge}>
+                      <Ionicons name="camera" size={14} color="#FFF" />
+                      <Text style={styles.changePhotoText}>Cambiar Foto</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.photoPickerPlaceholder}>
+                    <Ionicons name="camera-outline" size={40} color={theme.colors.primary} />
+                    <Text style={styles.photoPickerTitle}>Tomar Foto o Elegir de Galería</Text>
+                    <Text style={styles.photoPickerSub}>Sube una foto clara de tu vestido o confección</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <Input
+                label="Nombre del Vestido o Confección:"
+                placeholder="Ej. Vestido de XV Años Princesa Azul Cielo"
+                value={designTitle}
+                onChangeText={setDesignTitle}
+              />
+
+              <Text style={styles.formSectionLabel}>Categoría:</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 12 }}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {PORTFOLIO_CATEGORIES.filter((c) => c !== 'Todos').map((cat) => {
+                  const isSel = designCategory === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[
+                        styles.portfolioFilterChip,
+                        isSel && styles.portfolioFilterChipActive,
+                      ]}
+                      onPress={() => setDesignCategory(cat)}
+                    >
+                      <Text
+                        style={[
+                          styles.portfolioFilterText,
+                          isSel && styles.portfolioFilterTextActive,
+                        ]}
+                      >
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <Input
+                label="Precio aproximado desde ($ MXN):"
+                placeholder="Ej. 3500"
+                keyboardType="numeric"
+                value={designPrice}
+                onChangeText={setDesignPrice}
+              />
+
+              <Input
+                label="Detalles de la confección:"
+                placeholder="Ej. Falda de tul con crinolina, corsé con pedrería bordada a mano..."
+                value={designDescription}
+                onChangeText={setDesignDescription}
+                multiline
+                numberOfLines={3}
+              />
+
+              <Button
+                title="Guardar en Mi Portafolio"
+                variant="profit"
+                icon={<Ionicons name="checkmark-circle" size={20} color="#FFF" />}
+                onPress={handleSaveDesign}
+                style={{ marginTop: theme.spacing.sm }}
+              />
+
+              <Button
+                title="Cancelar"
+                variant="subtle"
+                onPress={() => setNewDesignModalVisible(false)}
+                style={{ marginTop: theme.spacing.xs, marginBottom: 20 }}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* =================================================================== */}
+      {/* MODAL: VISOR DE FOTO EN PANTALLA COMPLETA */}
+      {/* =================================================================== */}
+      <Modal
+        visible={!!previewImageUri}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUri(null)}
+      >
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity
+            style={styles.imageViewerCloseBtn}
+            onPress={() => setPreviewImageUri(null)}
+          >
+            <Ionicons name="close" size={30} color="#FFF" />
+          </TouchableOpacity>
+          {previewImageUri ? (
+            <Image
+              source={{ uri: previewImageUri }}
+              style={styles.imageViewerImg}
+              resizeMode="contain"
+            />
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -1076,5 +1648,358 @@ const styles = StyleSheet.create({
   measuresInputRow: {
     flexDirection: 'row',
     gap: 8,
+  },
+  // ==========================================
+  // ESTILOS: CORTE DE CAJA Y GANANCIAS
+  // ==========================================
+  cashCard: {
+    marginBottom: theme.spacing.md,
+    padding: theme.spacing.md,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    shadowColor: '#15803D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cashHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.sm + 2,
+  },
+  cashIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cashTitle: {
+    fontSize: theme.typography.body + 1,
+    fontWeight: '800',
+    color: '#14532D',
+  },
+  cashSubtitle: {
+    fontSize: theme.typography.small,
+    color: theme.colors.textMuted,
+  },
+  excelExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.sm,
+    gap: 4,
+  },
+  excelExportText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  cashGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: theme.borderRadius.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+  },
+  cashCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  cashColLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.textMuted,
+    marginBottom: 2,
+  },
+  cashColVal: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  cashColSub: {
+    fontSize: 9,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  cashDividerVert: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#E5E7EB',
+  },
+  // ==========================================
+  // ESTILOS: TU TALLER AL DÍA (GRID 2x2)
+  // ==========================================
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: theme.spacing.lg,
+    gap: 10,
+  },
+  statGridCard: {
+    width: '48%',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: 8,
+    marginBottom: 0,
+  },
+  // ==========================================
+  // ESTILOS: BOLETAS PARA GANCHOS
+  // ==========================================
+  hangerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#CCFBF1',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: theme.borderRadius.sm,
+    gap: 5,
+  },
+  hangerBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F766E',
+  },
+  quoteHangerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: '#CCFBF1',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    gap: 6,
+  },
+  quoteHangerText: {
+    fontSize: theme.typography.caption,
+    fontWeight: '800',
+    color: '#0F766E',
+  },
+  // ==========================================
+  // ESTILOS: MI PORTAFOLIO DE DISEÑOS
+  // ==========================================
+  portfolioModalSubtitle: {
+    fontSize: theme.typography.caption,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+  },
+  portfolioFilterScroll: {
+    marginBottom: 10,
+  },
+  portfolioFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  portfolioFilterChipActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
+  },
+  portfolioFilterText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.textSecondary,
+  },
+  portfolioFilterTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  portfolioCard: {
+    padding: 0,
+    marginBottom: theme.spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  portfolioImage: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#F3F4F6',
+  },
+  portfolioImageZoomHint: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  portfolioImageZoomText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  portfolioCardContent: {
+    padding: theme.spacing.md,
+  },
+  portfolioCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  portfolioCategoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  portfolioCategoryBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D28D9',
+  },
+  portfolioCardTitle: {
+    fontSize: theme.typography.body + 1,
+    fontWeight: '800',
+    color: theme.colors.textPrimary,
+  },
+  portfolioPriceBadge: {
+    alignItems: 'flex-end',
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  portfolioPriceLabel: {
+    fontSize: 9,
+    color: '#15803D',
+    fontWeight: '600',
+  },
+  portfolioPriceVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  portfolioCardDesc: {
+    fontSize: theme.typography.caption,
+    color: theme.colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  portfolioActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  portfolioShareBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DCFCE7',
+    paddingVertical: 9,
+    borderRadius: theme.borderRadius.sm,
+    gap: 6,
+  },
+  portfolioShareBtnText: {
+    fontSize: theme.typography.caption,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  portfolioDeleteBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoPickerContainer: {
+    width: '100%',
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 2,
+    borderColor: '#DDD6FE',
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+    marginBottom: theme.spacing.md,
+    backgroundColor: '#FAF5FF',
+    minHeight: 150,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickedImagePreview: {
+    width: '100%',
+    height: 180,
+  },
+  changePhotoBadge: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  changePhotoText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  photoPickerPlaceholder: {
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  photoPickerTitle: {
+    fontSize: theme.typography.body,
+    fontWeight: '800',
+    color: '#6D28D9',
+    marginTop: 6,
+  },
+  photoPickerSub: {
+    fontSize: theme.typography.caption,
+    color: theme.colors.textMuted,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageViewerCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageViewerImg: {
+    width: '94%',
+    height: '80%',
   },
 });

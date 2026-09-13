@@ -19,6 +19,7 @@ import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { clientService } from '../services/clientService';
+import { exportService } from '../services/exportService';
 
 export default function ClientsScreen() {
   const [clients, setClients] = useState([]);
@@ -202,13 +203,23 @@ export default function ClientsScreen() {
           style={{ marginBottom: theme.spacing.sm }}
         />
 
-        <Button
-          title="+ Anotar Nueva Clienta"
-          variant="primary"
-          icon={<Ionicons name="person-add" size={22} color="#FFF" />}
-          onPress={() => setModalVisible(true)}
-          style={{ marginBottom: theme.spacing.md }}
-        />
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: theme.spacing.md }}>
+          <Button
+            title="+ Anotar Clienta"
+            variant="primary"
+            icon={<Ionicons name="person-add" size={20} color="#FFF" />}
+            onPress={() => setModalVisible(true)}
+            style={{ flex: 1.2 }}
+          />
+          <Button
+            title="📊 Excel"
+            variant="outline"
+            icon={<Ionicons name="document-text-outline" size={20} color="#15803D" />}
+            onPress={() => exportService.exportClientsToExcel(clients)}
+            style={{ flex: 0.8, borderColor: '#15803D', backgroundColor: '#F0FDF4' }}
+            textStyle={{ color: '#15803D', fontWeight: '800' }}
+          />
+        </View>
 
         {filteredClients.length === 0 ? (
           <Card variant="flat" style={styles.emptyCard}>
