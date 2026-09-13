@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Función de validación: solo solicitudes con token de sesión de la app tienen acceso
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Colección de Telas (Inventario)
+    match /fabrics/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Colección de Hilos y Mercería
+    match /threads/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Colección de Proveedores y Catálogos
+    match /suppliers/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Colección de Cotizaciones Guardadas
+    match /quotes/{document} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    // Colección de Clientas y Medidas
+    match /clients/{document} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

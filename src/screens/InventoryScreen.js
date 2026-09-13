@@ -8,7 +8,9 @@ import {
   Modal,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { Header } from '../components/common/Header';
@@ -24,6 +26,7 @@ export default function InventoryScreen() {
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
 
   // Campos del formulario modal
   const [name, setName] = useState('');
@@ -31,6 +34,7 @@ export default function InventoryScreen() {
   const [unitPrice, setUnitPrice] = useState('');
   const [color, setColor] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [photoUri, setPhotoUri] = useState(null);
   const [formError, setFormError] = useState('');
 
   const loadInventory = async () => {
@@ -52,6 +56,48 @@ export default function InventoryScreen() {
   useEffect(() => {
     loadInventory();
   }, []);
+
+  const handlePickImage = async () => {
+    Alert.alert(
+      'Foto de la Tela 🧵',
+      '¿De dónde deseas tomar la foto de muestra de la tela?',
+      [
+        {
+          text: 'Tomar Foto 📷',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permiso necesario', 'Se necesita permiso para usar la cámara.');
+              return;
+            }
+            const res = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.7,
+            });
+            if (!res.canceled && res.assets && res.assets.length > 0) {
+              setPhotoUri(res.assets[0].uri);
+            }
+          },
+        },
+        {
+          text: 'De la Galería 🖼️',
+          onPress: async () => {
+            const res = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ['images'],
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: 0.7,
+            });
+            if (!res.canceled && res.assets && res.assets.length > 0) {
+              setPhotoUri(res.assets[0].uri);
+            }
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
+  };
 
   const handleSaveItem = async () => {
     if (!name.trim()) {
@@ -77,6 +123,7 @@ export default function InventoryScreen() {
           pricePerMeter: Number(unitPrice),
           color: color.trim() || 'No especificado',
           supplier: supplier.trim() || 'Particular',
+          photoUri: photoUri || null,
         });
       } else {
         await inventoryService.addThread({
@@ -94,6 +141,7 @@ export default function InventoryScreen() {
       setUnitPrice('');
       setColor('');
       setSupplier('');
+      setPhotoUri(null);
       setModalVisible(false);
       await loadInventory();
     } catch (e) {
@@ -211,6 +259,14 @@ export default function InventoryScreen() {
         renderItem={({ item }) => (
           <Card style={styles.itemCard}>
             <View style={styles.cardHeader}>
+              {item.photoUri ? (
+                <TouchableOpacity onPress={() => setPreviewImage(item.photoUri)} activeOpacity={0.85} style={styles.fabricThumbWrap}>
+                  <Image source={{ uri: item.photoUri }} style={styles.fabricThumb} />
+                  <View style={styles.thumbZoomIcon}>
+                    <Ionicons name="expand" size={10} color="#FFF" />
+                  </View>
+                </TouchableOpacity>
+              ) : null}
               <View style={styles.cardTitleBlock}>
                 <Text style={styles.itemName}>{item.name}</Text>
                 <Text style={styles.itemColor}>Color: {item.color || 'Estándar'}</Text>
@@ -226,12 +282,35 @@ export default function InventoryScreen() {
             </View>
 
             <View style={styles.cardFooter}>
-              <View style={styles.stockBadge}>
-                <Ionicons name="layers-outline" size={16} color={theme.colors.primaryDark} />
-                <Text style={styles.stockText}>
-                  {activeTab === 'telas' ? `${item.meters} metros` : `${item.quantity} piezas`}
-                </Text>
-              </View>
+              {activeTab === 'telas' ? (
+                item.meters < 2.0 ? (
+                  <View style={[styles.stockBadge, { backgroundColor: '#FEE2E2' }]}>
+                    <Ionicons name="warning" size={16} color="#DC2626" />
+                    <Text style={[styles.stockText, { color: '#B91C1C' }]}>
+                      ⚠️ Poco stock: {item.meters} m
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.stockBadge}>
+                    <Ionicons name="layers-outline" size={16} color={theme.colors.primaryDark} />
+                    <Text style={styles.stockText}>{item.meters} metros</Text>
+                  </View>
+                )
+              ) : (
+                item.quantity < 2 ? (
+                  <View style={[styles.stockBadge, { backgroundColor: '#FEF3C7' }]}>
+                    <Ionicons name="alert-circle" size={16} color="#D97706" />
+                    <Text style={[styles.stockText, { color: '#B45309' }]}>
+                      ⚠️ Casi agotado: {item.quantity} pz
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.stockBadge}>
+                    <Ionicons name="layers-outline" size={16} color={theme.colors.primaryDark} />
+                    <Text style={styles.stockText}>{item.quantity} piezas</Text>
+                  </View>
+                )
+              )}
 
               <View style={styles.priceContainer}>
                 <Text style={styles.priceLabel}>Costo compra:</Text>
@@ -309,6 +388,34 @@ export default function InventoryScreen() {
                 />
               )}
 
+              {activeTab === 'telas' && (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={styles.formSectionTitle}>Foto de la Tela (Muestra o Rollo):</Text>
+                  <TouchableOpacity
+                    style={styles.photoPickerBtn}
+                    onPress={handlePickImage}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="camera" size={20} color={theme.colors.primaryDark} />
+                    <Text style={styles.photoPickerText}>
+                      {photoUri ? '✓ Foto de Tela Lista (Toca para cambiar)' : '+ Tomar Foto del Rollo o Retazo'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {photoUri ? (
+                    <View style={styles.photoPreviewBox}>
+                      <Image source={{ uri: photoUri }} style={styles.photoPreviewImg} />
+                      <TouchableOpacity
+                        style={styles.removePhotoBtn}
+                        onPress={() => setPhotoUri(null)}
+                      >
+                        <Ionicons name="close-circle" size={24} color="#DC2626" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
               <View style={styles.modalActions}>
                 <Button
                   title="Guardar en Inventario"
@@ -325,6 +432,23 @@ export default function InventoryScreen() {
               </View>
             </ScrollView>
           </View>
+        </View>
+      </Modal>
+
+      {/* Modal de Foto de Tela en Pantalla Completa */}
+      <Modal
+        visible={!!previewImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <View style={styles.fullImageOverlay}>
+          <TouchableOpacity style={styles.closeFullImageBtn} onPress={() => setPreviewImage(null)}>
+            <Ionicons name="close-circle" size={38} color="#FFFFFF" />
+          </TouchableOpacity>
+          {previewImage ? (
+            <Image source={{ uri: previewImage }} style={styles.fullImage} resizeMode="contain" />
+          ) : null}
         </View>
       </Modal>
     </View>
@@ -371,7 +495,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: theme.spacing.md,
-    paddingBottom: 40,
+    paddingBottom: 90,
   },
   itemCard: {
     padding: theme.spacing.md,
@@ -493,5 +617,82 @@ const styles = StyleSheet.create({
   modalActions: {
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.lg,
+  },
+  fabricThumbWrap: {
+    position: 'relative',
+    marginRight: 10,
+  },
+  fabricThumb: {
+    width: 54,
+    height: 54,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  thumbZoomIcon: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 4,
+    padding: 2,
+  },
+  formSectionTitle: {
+    fontSize: theme.typography.caption + 1,
+    fontWeight: '800',
+    color: theme.colors.textPrimary,
+    marginBottom: 6,
+  },
+  photoPickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primaryLight,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    borderStyle: 'dashed',
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.md,
+    gap: 8,
+    marginBottom: 8,
+  },
+  photoPickerText: {
+    fontSize: theme.typography.caption + 1,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+  },
+  photoPreviewBox: {
+    position: 'relative',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  photoPreviewImg: {
+    width: '100%',
+    height: 140,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: '#F3F4F6',
+  },
+  removePhotoBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+  },
+  fullImageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  closeFullImageBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  fullImage: {
+    width: '100%',
+    height: '80%',
   },
 });

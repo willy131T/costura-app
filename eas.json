@@ -1,0 +1,35 @@
+﻿{
+  "cli": {
+    "version": ">= 16.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCR2fAgSyZWWij1ZteAcSdyJIiT-Vp5aPs",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "costuraapp-6f17b.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "costuraapp-6f17b",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "costuraapp-6f17b.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "121410461291",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:121410461291:web:7aaf4c1c529c01c6dfdb2e",
+        "EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID": "G-VZ975F4PJL",
+        "EXPO_ROUTER_DISABLE_RN_NAVIGATION_CHECK": "1"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

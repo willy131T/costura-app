@@ -26,7 +26,7 @@ export const inventoryService = {
       if (snap.empty) return [...localFabrics];
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) {
-      console.warn('Fallback a inventario local de telas:', e.message);
+      console.log('ℹ️ Usando inventario local de telas:', e.message);
       return [...localFabrics];
     }
   },
@@ -61,7 +61,7 @@ export const inventoryService = {
       try {
         await deleteDoc(doc(db, 'fabrics', id));
       } catch (e) {
-        console.warn('Error al borrar tela de Firestore:', e.message);
+        console.log('ℹ️ Error al borrar tela de Firestore:', e.message);
       }
     }
     return true;
@@ -76,7 +76,7 @@ export const inventoryService = {
       if (snap.empty) return [...localThreads];
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) {
-      console.warn('Fallback a hilos/mercería local:', e.message);
+      console.log('ℹ️ Usando hilos/mercería local:', e.message);
       return [...localThreads];
     }
   },
@@ -111,9 +111,45 @@ export const inventoryService = {
       try {
         await deleteDoc(doc(db, 'threads', id));
       } catch (e) {
-        console.warn('Error al borrar insumo:', e.message);
+        console.log('ℹ️ Error al borrar insumo:', e.message);
       }
     }
     return true;
+  },
+
+  // Descuento automático de materiales por confección
+  async deductMaterial({ name, quantity, isFabric = false }) {
+    const qty = Number(quantity) || 0;
+    if (qty <= 0) return;
+
+    if (isFabric) {
+      // Buscar en telas por coincidencia de nombre
+      const fabric = localFabrics.find(f => f.name.toLowerCase().includes((name || '').toLowerCase()));
+      if (fabric) {
+        const newMeters = Math.max(0, Math.round((fabric.meters - qty) * 100) / 100);
+        fabric.meters = newMeters;
+        if (!isMockMode && db && fabric.id && !fabric.id.startsWith('f_')) {
+          try {
+            await updateDoc(doc(db, 'fabrics', fabric.id), { meters: newMeters });
+          } catch (e) {
+            console.log('Error descontando tela en Firestore:', e.message);
+          }
+        }
+      }
+    } else {
+      // Buscar en hilos y mercería
+      const thread = localThreads.find(t => t.name.toLowerCase().includes((name || '').toLowerCase()));
+      if (thread) {
+        const newQty = Math.max(0, Math.round((thread.quantity - qty) * 100) / 100);
+        thread.quantity = newQty;
+        if (!isMockMode && db && thread.id && !thread.id.startsWith('t_')) {
+          try {
+            await updateDoc(doc(db, 'threads', thread.id), { quantity: newQty });
+          } catch (e) {
+            console.log('Error descontando mercería en Firestore:', e.message);
+          }
+        }
+      }
+    }
   }
 };

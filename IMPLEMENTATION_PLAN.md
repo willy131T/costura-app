@@ -5,4 +5,6 @@
 - [x] Tarea 4: UI de Inventario (Listar telas/hilos y formulario de alta).
 - [x] Tarea 5: UI de Proveedores (Tabla comparativa de precios).
 - [x] Tarea 6: Lógica del Cotizador (Seleccionar materiales + horas + margen = Precio final).
-- [/] Tarea 7: Pruebas finales en dispositivo físico con Expo Go.
+- [x] Tarea 7: Pruebas en dispositivo físico y pulido ergonómico de UX (Safe Area & Notificaciones).
+- [x] Tarea 8: Botón inteligente para compartir cotizaciones formales por WhatsApp.
+- [x] Tarea 9: Libreta de Medidas de Clientas (Busto, cintura, cadera, talles).

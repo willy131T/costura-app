@@ -50,7 +50,7 @@ export const supplierService = {
       if (snap.empty) return [...localSuppliers];
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (e) {
-      console.warn('Fallback a proveedores locales:', e.message);
+      console.log('ℹ️ Usando proveedores locales:', e.message);
       return [...localSuppliers];
     }
   },
@@ -58,8 +58,8 @@ export const supplierService = {
   async addSupplier(supplier) {
     const newSup = {
       ...supplier,
-      catalog: supplier.catalog || [],
       createdAt: new Date().toISOString(),
+      pricePerUnit: Number(supplier.pricePerUnit) || 0,
     };
 
     if (isMockMode || !db) {
@@ -84,7 +84,7 @@ export const supplierService = {
       try {
         await deleteDoc(doc(db, 'suppliers', id));
       } catch (e) {
-        console.warn('Error borrando proveedor:', e.message);
+        console.log('ℹ️ Error borrando proveedor:', e.message);
       }
     }
     return true;
